@@ -7,17 +7,14 @@
     body { font-family: sans-serif; margin: 10px; background-color: #f0f0f0; }
     h1 { color: #333; text-align: center; font-size: 1.2rem; margin-bottom: 10px; }
     .controls { display: flex; justify-content: center; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
-    button {
-        padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;
-    }
+    button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
     #reloadButton { background-color: #4CAF50; color: white; }
+    #reloadButton:active { background-color: #3e8e41; }
     .view-btn { background-color: #2196F3; color: white; }
     .view-btn.active { background-color: #0d47a1; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); }
-
     .container { overflow-x: auto; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; min-width: 1400px; }
     th, td { border: 1px solid #ddd; padding: 4px; text-align: center; font-size: 9pt; height: 35px; }
-    
     .name-column { background-color: #e8e8e8; font-weight: bold; width: 120px; position: sticky; left: 0; z-index: 5; border-right: 2px solid #ccc; }
     .time-header { background-color: #444; color: white; width: 40px; font-size: 8pt; }
     .bar-text { font-size: 8pt; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
@@ -27,7 +24,7 @@
     <h1 id="mainTitle">作業工程表</h1>
     
     <div class="controls">
-        <button id="reloadButton">🔄 更新</button>
+        <button id="reloadButton">🔄 データを最新に更新</button>
         <button class="view-btn active" id="staffViewBtn">👤 担当者基準</button>
         <button class="view-btn" id="taskViewBtn">📋 業務基準</button>
     </div>
@@ -58,17 +55,19 @@
     }
 
     async function updateData() {
+        const btn = document.getElementById('reloadButton');
+        btn.innerText = '⏳ 読み込み中...';
         try {
-            const res = await fetch(PUBLIC_CSV_URL);
+            const res = await fetch(PUBLIC_CSV_URL + '&cache=' + new Date().getTime());
             const csvText = await res.text();
             const rawRows = csvText.trim().split('\n');
             
             if (rawRows.length > 1) {
-                // H2（インデックス7）から日付を取得してタイトルを更新
                 const firstRowData = splitCsvLine(rawRows[1]);
-                const h2Date = firstRowData[7] || ""; // H列は8番目(index 7)
+                // H列が8番目(index 7)にあるか確認
+                const h2Date = firstRowData[7];
                 if (h2Date) {
-                    document.getElementById('mainTitle').innerText = `${h2Date} の作業工程表`;
+                    document.getElementById('mainTitle').innerText = h2Date + " の作業工程表";
                 }
             }
 
@@ -82,15 +81,17 @@
                     color: r[6] || '#cccccc'
                 };
             }).filter(t => t.job && t.start && t.end);
+
             renderChart();
+            btn.innerText = '🔄 データを最新に更新';
         } catch (e) {
             document.getElementById('ganttContainer').innerHTML = 'エラー: ' + e.message;
+            btn.innerText = '🔄 データを最新に更新';
         }
     }
 
     function renderChart() {
         let displayData = {};
-
         if (currentMode === 'staff') {
             currentTasks.forEach(t => {
                 let names = t.staff.split(/[,、]/);
@@ -122,13 +123,12 @@
         keys.forEach(key => {
             let rowLabel = currentMode === 'staff' ? key : key.split('_')[1];
             html += `<tr><td class="name-column">${rowLabel}</td>`;
-            
             for (let h = START_HOUR; h < END_HOUR; h++) {
                 for (let m = 0; m < 60; m += INTERVAL) {
                     let currentTime = h * 60 + m;
                     let task = displayData[key].find(t => {
-                        let [sh, sm] = t.start.split(':').map(Number);
-                        let [eh, em] = t.end.split(':').map(Number);
+                        let [sh, sm] = (t.start || "0:0").split(':').map(Number);
+                        let [eh, em] = (t.end || "0:0").split(':').map(Number);
                         return currentTime >= (sh * 60 + sm) && currentTime < (eh * 60 + em);
                     });
 
@@ -148,19 +148,19 @@
         document.getElementById('ganttContainer').innerHTML = html;
     }
 
-    document.getElementById('reloadButton').onclick = updateData;
-    document.getElementById('staffViewBtn').onclick = () => {
+    document.getElementById('reloadButton').addEventListener('click', updateData);
+    document.getElementById('staffViewBtn').addEventListener('click', () => {
         currentMode = 'staff';
         document.getElementById('staffViewBtn').classList.add('active');
         document.getElementById('taskViewBtn').classList.remove('active');
         renderChart();
-    };
-    document.getElementById('taskViewBtn').onclick = () => {
+    });
+    document.getElementById('taskViewBtn').addEventListener('click', () => {
         currentMode = 'task';
         document.getElementById('taskViewBtn').classList.add('active');
         document.getElementById('staffViewBtn').classList.remove('active');
         renderChart();
-    };
+    });
 
     window.onload = updateData;
 </script>
