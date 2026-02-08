@@ -24,7 +24,7 @@
 </style>
 </head>
 <body>
-    <h1 id="mainTitle">本日の作業工程表</h1>
+    <h1 id="mainTitle">作業工程表</h1>
     
     <div class="controls">
         <button id="reloadButton">🔄 更新</button>
@@ -42,7 +42,7 @@
     const INTERVAL = 30;
 
     let currentTasks = [];
-    let currentMode = 'staff'; // 'staff' or 'task'
+    let currentMode = 'staff'; 
 
     function splitCsvLine(line) {
         const result = [];
@@ -62,6 +62,16 @@
             const res = await fetch(PUBLIC_CSV_URL);
             const csvText = await res.text();
             const rawRows = csvText.trim().split('\n');
+            
+            if (rawRows.length > 1) {
+                // H2（インデックス7）から日付を取得してタイトルを更新
+                const firstRowData = splitCsvLine(rawRows[1]);
+                const h2Date = firstRowData[7] || ""; // H列は8番目(index 7)
+                if (h2Date) {
+                    document.getElementById('mainTitle').innerText = `${h2Date} の作業工程表`;
+                }
+            }
+
             currentTasks = rawRows.slice(1).map(line => {
                 const r = splitCsvLine(line);
                 return {
@@ -82,7 +92,6 @@
         let displayData = {};
 
         if (currentMode === 'staff') {
-            // 担当者基準のデータ整理
             currentTasks.forEach(t => {
                 let names = t.staff.split(/[,、]/);
                 names.forEach(n => {
@@ -93,9 +102,8 @@
                 });
             });
         } else {
-            // 業務基準のデータ整理
             currentTasks.forEach((t, index) => {
-                let key = `${index}_${t.job}`; // 重複業務対応
+                let key = `${index}_${t.job}`;
                 if (!displayData[key]) displayData[key] = [];
                 displayData[key].push(t);
             });
@@ -140,7 +148,6 @@
         document.getElementById('ganttContainer').innerHTML = html;
     }
 
-    // イベント設定
     document.getElementById('reloadButton').onclick = updateData;
     document.getElementById('staffViewBtn').onclick = () => {
         currentMode = 'staff';
