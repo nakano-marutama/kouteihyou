@@ -5,125 +5,130 @@
 <title>作業工程表確認</title>
 <style>
     body { font-family: sans-serif; margin: 10px; background-color: #f0f0f0; }
-    h1 { color: #333; text-align: center; font-size: 1.2rem; }
-    #reloadButton {
-        display: block; margin: 0 auto 20px; padding: 10px 20px;
-        background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;
-        font-weight: bold;
+    h1 { color: #333; text-align: center; font-size: 1.2rem; margin-bottom: 10px; }
+    .controls { display: flex; justify-content: center; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+    button {
+        padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;
     }
+    #reloadButton { background-color: #4CAF50; color: white; }
+    .view-btn { background-color: #2196F3; color: white; }
+    .view-btn.active { background-color: #0d47a1; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); }
+
     .container { overflow-x: auto; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; min-width: 1400px; }
     th, td { border: 1px solid #ddd; padding: 4px; text-align: center; font-size: 9pt; height: 35px; }
     
-    /* 左端（担当者名）の固定 */
-    .name-column { background-color: #e8e8e8; font-weight: bold; width: 100px; position: sticky; left: 0; z-index: 5; border-right: 2px solid #ccc; }
-    /* 時間ヘッダー */
+    .name-column { background-color: #e8e8e8; font-weight: bold; width: 120px; position: sticky; left: 0; z-index: 5; border-right: 2px solid #ccc; }
     .time-header { background-color: #444; color: white; width: 40px; font-size: 8pt; }
-    /* バーの中のテキスト */
     .bar-text { font-size: 8pt; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 </style>
 </head>
 <body>
     <h1 id="mainTitle">本日の作業工程表</h1>
-    <button id="reloadButton">🔄 最新データに更新</button>
+    
+    <div class="controls">
+        <button id="reloadButton">🔄 更新</button>
+        <button class="view-btn active" id="staffViewBtn">👤 担当者基準</button>
+        <button class="view-btn" id="taskViewBtn">📋 業務基準</button>
+    </div>
+
     <div class="container" id="ganttContainer">データを読み込み中...</div>
 
 <script>
-    // スプレッドシートの「入力」シートをCSV公開したURL
     const PUBLIC_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTpvVF_Vr1KaDNLsa03dZZrD_iMBLEw_l_4bJP3E_e223SADZYC2B_iOzNr2VCxkRCWKMVbu2iebL1Z/pub?gid=786246587&single=true&output=csv';
 
     const START_HOUR = 4;
     const END_HOUR = 21;
     const INTERVAL = 30;
 
-    // CSVの1行を正しく分割するための関数（引用符内のカンマを無視する）
+    let currentTasks = [];
+    let currentMode = 'staff'; // 'staff' or 'task'
+
     function splitCsvLine(line) {
         const result = [];
         let cur = '';
         let inQuote = false;
         for (let char of line) {
-            if (char === '"') {
-                inQuote = !inQuote;
-            } else if (char === ',' && !inQuote) {
-                result.push(cur.trim());
-                cur = '';
-            } else {
-                cur += char;
-            }
+            if (char === '"') inQuote = !inQuote;
+            else if (char === ',' && !inQuote) { result.push(cur.trim()); cur = ''; }
+            else cur += char;
         }
         result.push(cur.trim());
         return result;
     }
 
-    async function updateSchedule() {
+    async function updateData() {
         try {
             const res = await fetch(PUBLIC_CSV_URL);
             const csvText = await res.text();
             const rawRows = csvText.trim().split('\n');
-            
-            // 2行目以降を解析
-            const tasks = rawRows.slice(1).map(line => {
+            currentTasks = rawRows.slice(1).map(line => {
                 const r = splitCsvLine(line);
                 return {
                     job: r[1],
-                    staff: r[2],
+                    staff: (r[2] || "").replace(/"/g, ''),
                     start: r[3],
                     end: r[4],
                     color: r[6] || '#cccccc'
                 };
-            }).filter(t => t.job && t.staff && t.start && t.end);
-
-            renderChart(tasks);
+            }).filter(t => t.job && t.start && t.end);
+            renderChart();
         } catch (e) {
             document.getElementById('ganttContainer').innerHTML = 'エラー: ' + e.message;
         }
     }
 
-    function renderChart(tasks) {
-        let staffMap = {};
-        tasks.forEach(t => {
-            // カンマや読点で区切られた名前をバラす
-            let names = t.staff.replace(/"/g, '').split(/[,、]/);
-            names.forEach(n => {
-                let name = n.trim();
-                if (!name) return;
-                if (!staffMap[name]) staffMap[name] = [];
-                staffMap[name].push(t);
+    function renderChart() {
+        let displayData = {};
+
+        if (currentMode === 'staff') {
+            // 担当者基準のデータ整理
+            currentTasks.forEach(t => {
+                let names = t.staff.split(/[,、]/);
+                names.forEach(n => {
+                    let name = n.trim();
+                    if (!name) return;
+                    if (!displayData[name]) displayData[name] = [];
+                    displayData[name].push(t);
+                });
             });
-        });
+        } else {
+            // 業務基準のデータ整理
+            currentTasks.forEach((t, index) => {
+                let key = `${index}_${t.job}`; // 重複業務対応
+                if (!displayData[key]) displayData[key] = [];
+                displayData[key].push(t);
+            });
+        }
 
-        // 担当者名をあいうえお順に並び替え
-        const sortedStaff = Object.keys(staffMap).sort();
+        const keys = currentMode === 'staff' ? Object.keys(displayData).sort() : Object.keys(displayData);
 
-        let html = '<table><thead><tr><th class="name-column">担当者</th>';
+        let html = '<table><thead><tr><th class="name-column">' + (currentMode === 'staff' ? '担当者' : '業務名') + '</th>';
         for (let h = START_HOUR; h < END_HOUR; h++) {
             for (let m = 0; m < 60; m += INTERVAL) {
-                let timeStr = `${h}:${m === 0 ? '00' : m}`;
-                html += `<th class="time-header">${timeStr}</th>`;
+                html += `<th class="time-header">${h}:${m === 0 ? '00' : m}</th>`;
             }
         }
         html += '</tr></thead><tbody>';
 
-        sortedStaff.forEach(staff => {
-            html += `<tr><td class="name-column">${staff}</td>`;
+        keys.forEach(key => {
+            let rowLabel = currentMode === 'staff' ? key : key.split('_')[1];
+            html += `<tr><td class="name-column">${rowLabel}</td>`;
             
             for (let h = START_HOUR; h < END_HOUR; h++) {
                 for (let m = 0; m < 60; m += INTERVAL) {
                     let currentTime = h * 60 + m;
-                    
-                    let task = staffMap[staff].find(t => {
+                    let task = displayData[key].find(t => {
                         let [sh, sm] = t.start.split(':').map(Number);
                         let [eh, em] = t.end.split(':').map(Number);
-                        let sTotal = sh * 60 + sm;
-                        let eTotal = eh * 60 + em;
-                        return currentTime >= sTotal && currentTime < eTotal;
+                        return currentTime >= (sh * 60 + sm) && currentTime < (eh * 60 + em);
                     });
 
                     if (task) {
                         let [sh, sm] = task.start.split(':').map(Number);
                         let isStart = currentTime === (sh * 60 + sm);
-                        // セルの背景色を適用
-                        html += `<td style="background-color:${task.color};"><div class="bar-text">${isStart ? task.job : ''}</div></td>`;
+                        let barText = currentMode === 'staff' ? task.job : task.staff;
+                        html += `<td style="background-color:${task.color};"><div class="bar-text">${isStart ? barText : ''}</div></td>`;
                     } else {
                         html += '<td></td>';
                     }
@@ -135,8 +140,22 @@
         document.getElementById('ganttContainer').innerHTML = html;
     }
 
-    window.onload = updateSchedule;
-    document.getElementById('reloadButton').onclick = updateSchedule;
+    // イベント設定
+    document.getElementById('reloadButton').onclick = updateData;
+    document.getElementById('staffViewBtn').onclick = () => {
+        currentMode = 'staff';
+        document.getElementById('staffViewBtn').classList.add('active');
+        document.getElementById('taskViewBtn').classList.remove('active');
+        renderChart();
+    };
+    document.getElementById('taskViewBtn').onclick = () => {
+        currentMode = 'task';
+        document.getElementById('taskViewBtn').classList.add('active');
+        document.getElementById('staffViewBtn').classList.remove('active');
+        renderChart();
+    };
+
+    window.onload = updateData;
 </script>
 </body>
 </html>
