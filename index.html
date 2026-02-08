@@ -4,53 +4,74 @@
 <meta charset="UTF-8">
 <title>作業工程表確認</title>
 <style>
-    body { font-family: sans-serif; margin: 20px; background-color: #f0f0f0; }
-    h1 { color: #333; text-align: center; }
+    body { font-family: sans-serif; margin: 10px; background-color: #f0f0f0; }
+    h1 { color: #333; text-align: center; font-size: 1.2rem; }
     #reloadButton {
         display: block; margin: 0 auto 20px; padding: 10px 20px;
         background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;
+        font-weight: bold;
     }
-    .container { overflow-x: auto; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    table { border-collapse: collapse; width: 100%; table-layout: fixed; min-width: 1200px; }
-    th, td { border: 1px solid #ddd; padding: 6px; text-align: center; font-size: 10pt; height: 35px; }
+    .container { overflow-x: auto; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; min-width: 1400px; }
+    th, td { border: 1px solid #ddd; padding: 4px; text-align: center; font-size: 9pt; height: 35px; }
     
     /* 左端（担当者名）の固定 */
-    .name-column { background-color: #e8e8e8; font-weight: bold; width: 120px; position: sticky; left: 0; z-index: 5; }
+    .name-column { background-color: #e8e8e8; font-weight: bold; width: 100px; position: sticky; left: 0; z-index: 5; border-right: 2px solid #ccc; }
     /* 時間ヘッダー */
-    .time-header { background-color: #444; color: white; width: 45px; font-size: 9pt; }
+    .time-header { background-color: #444; color: white; width: 40px; font-size: 8pt; }
     /* バーの中のテキスト */
-    .bar-text { font-size: 8pt; font-weight: bold; white-space: nowrap; overflow: hidden; }
+    .bar-text { font-size: 8pt; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 </style>
 </head>
 <body>
     <h1 id="mainTitle">本日の作業工程表</h1>
-    <button id="reloadButton">🔄 データを更新</button>
+    <button id="reloadButton">🔄 最新データに更新</button>
     <div class="container" id="ganttContainer">データを読み込み中...</div>
 
 <script>
-    // 🌟 【重要】スプレッドシートの「入力」シートをCSV公開したURLに書き換えてください
+    // スプレッドシートの「入力」シートをCSV公開したURL
     const PUBLIC_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTpvVF_Vr1KaDNLsa03dZZrD_iMBLEw_l_4bJP3E_e223SADZYC2B_iOzNr2VCxkRCWKMVbu2iebL1Z/pub?gid=786246587&single=true&output=csv';
 
-    // 表示設定（SSのヘッダーに合わせて調整してください）
-    const START_HOUR = 4;  // 開始4:00
-    const END_HOUR = 21;    // 終了20:30 (21時まで表示)
-    const INTERVAL = 30;    // 30分刻み
+    const START_HOUR = 4;
+    const END_HOUR = 21;
+    const INTERVAL = 30;
+
+    // CSVの1行を正しく分割するための関数（引用符内のカンマを無視する）
+    function splitCsvLine(line) {
+        const result = [];
+        let cur = '';
+        let inQuote = false;
+        for (let char of line) {
+            if (char === '"') {
+                inQuote = !inQuote;
+            } else if (char === ',' && !inQuote) {
+                result.push(cur.trim());
+                cur = '';
+            } else {
+                cur += char;
+            }
+        }
+        result.push(cur.trim());
+        return result;
+    }
 
     async function updateSchedule() {
         try {
             const res = await fetch(PUBLIC_CSV_URL);
             const csvText = await res.text();
-            const rows = csvText.trim().split('\n').map(row => row.split(','));
-
-            // B:業務(1), C:担当(2), D:開始(3), E:終了(4), G:カラー(6) を抽出
-            // ※CSVは0から数えるため、G列はインデックス6になります
-            const tasks = rows.slice(1).map(r => ({
-                job: r[1]?.trim(),
-                staff: r[2]?.trim(),
-                start: r[3]?.trim(),
-                end: r[4]?.trim(),
-                color: r[6]?.trim() || '#cccccc'
-            })).filter(t => t.job && t.staff && t.start);
+            const rawRows = csvText.trim().split('\n');
+            
+            // 2行目以降を解析
+            const tasks = rawRows.slice(1).map(line => {
+                const r = splitCsvLine(line);
+                return {
+                    job: r[1],
+                    staff: r[2],
+                    start: r[3],
+                    end: r[4],
+                    color: r[6] || '#cccccc'
+                };
+            }).filter(t => t.job && t.staff && t.start && t.end);
 
             renderChart(tasks);
         } catch (e) {
@@ -59,19 +80,22 @@
     }
 
     function renderChart(tasks) {
-        // 担当者ごとにデータをまとめる（工程表2の形式）
         let staffMap = {};
         tasks.forEach(t => {
-            let names = t.staff.split(/[,、]/);
+            // カンマや読点で区切られた名前をバラす
+            let names = t.staff.replace(/"/g, '').split(/[,、]/);
             names.forEach(n => {
                 let name = n.trim();
+                if (!name) return;
                 if (!staffMap[name]) staffMap[name] = [];
                 staffMap[name].push(t);
             });
         });
 
+        // 担当者名をあいうえお順に並び替え
+        const sortedStaff = Object.keys(staffMap).sort();
+
         let html = '<table><thead><tr><th class="name-column">担当者</th>';
-        // 時間ヘッダー生成
         for (let h = START_HOUR; h < END_HOUR; h++) {
             for (let m = 0; m < 60; m += INTERVAL) {
                 let timeStr = `${h}:${m === 0 ? '00' : m}`;
@@ -80,8 +104,7 @@
         }
         html += '</tr></thead><tbody>';
 
-        // 担当者ごとの行を作成
-        for (let staff in staffMap) {
+        sortedStaff.forEach(staff => {
             html += `<tr><td class="name-column">${staff}</td>`;
             
             for (let h = START_HOUR; h < END_HOUR; h++) {
@@ -91,12 +114,15 @@
                     let task = staffMap[staff].find(t => {
                         let [sh, sm] = t.start.split(':').map(Number);
                         let [eh, em] = t.end.split(':').map(Number);
-                        return currentTime >= (sh * 60 + sm) && currentTime < (eh * 60 + em);
+                        let sTotal = sh * 60 + sm;
+                        let eTotal = eh * 60 + em;
+                        return currentTime >= sTotal && currentTime < eTotal;
                     });
 
                     if (task) {
                         let [sh, sm] = task.start.split(':').map(Number);
                         let isStart = currentTime === (sh * 60 + sm);
+                        // セルの背景色を適用
                         html += `<td style="background-color:${task.color};"><div class="bar-text">${isStart ? task.job : ''}</div></td>`;
                     } else {
                         html += '<td></td>';
@@ -104,7 +130,7 @@
                 }
             }
             html += '</tr>';
-        }
+        });
         html += '</tbody></table>';
         document.getElementById('ganttContainer').innerHTML = html;
     }
