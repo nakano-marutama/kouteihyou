@@ -64,7 +64,6 @@
             
             if (rawRows.length > 1) {
                 const firstRowData = splitCsvLine(rawRows[1]);
-                // H列が8番目(index 7)にあるか確認
                 const h2Date = firstRowData[7];
                 if (h2Date) {
                     document.getElementById('mainTitle').innerText = h2Date + " の作業工程表";
@@ -73,12 +72,15 @@
 
             currentTasks = rawRows.slice(1).map(line => {
                 const r = splitCsvLine(line);
+                // G列（r[6]）をカンマで分割。 [業務リスト色, F列色]
+                const colors = (r[6] || "").split(',');
                 return {
                     job: r[1],
                     staff: (r[2] || "").replace(/"/g, ''),
                     start: r[3],
                     end: r[4],
-                    color: r[6] || '#cccccc'
+                    colorMaster: colors[0] || '#cccccc',
+                    colorInputF: colors[1] || '#cccccc'
                 };
             }).filter(t => t.job && t.start && t.end);
 
@@ -136,7 +138,9 @@
                         let [sh, sm] = task.start.split(':').map(Number);
                         let isStart = currentTime === (sh * 60 + sm);
                         let barText = currentMode === 'staff' ? task.job : task.staff;
-                        html += `<td style="background-color:${task.color};"><div class="bar-text">${isStart ? barText : ''}</div></td>`;
+                        // モードによって使う色を切り替える
+                        let appliedColor = currentMode === 'staff' ? task.colorInputF : task.colorMaster;
+                        html += `<td style="background-color:${appliedColor};"><div class="bar-text">${isStart ? barText : ''}</div></td>`;
                     } else {
                         html += '<td></td>';
                     }
